@@ -25,6 +25,9 @@ metada_to_add = predictions[, c("predicted.id", "prediction.score.max")]
 # add to metadata 
 seu_map = AddMetaData(seu_map, metadata = metada_to_add)
 # save 
-save(seu_map, file = "/external/rprshnas01/kcni/karbabi/R Projects/Within_Subject/")
+save(seu_map, file = "/external/rprshnas01/kcni/karbabi/R Projects/Within_Subject/keon_analyses/output/SME_Data_Integrated_Our_Labels.rds")
 
 # compare 
+seu_map = readRDS("/external/rprshnas01/kcni/karbabi/R Projects/Within_Subject/keon_analyses/output/SME_Data_Integrated_Our_Labels.rds")
+DimPlot(object = seu_map, reduction = "umap", label = TRUE, pt.size = 0.5) +
+  theme(legend.position="none")
