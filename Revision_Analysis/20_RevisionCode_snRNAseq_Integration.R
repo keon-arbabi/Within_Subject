@@ -355,7 +355,7 @@ write.table(df,"integration_scRNAseq/OUTPUTS/SME_Integrated_DGE.txt",sep="\t",qu
 
 
 # Run enrichment for markers of MTG (Hodge et al. 2019)
-# Output will be a new cluter label that can be use to label the current data 
+# Output will be a new cluster label that can be use to label the current data 
 system("R CMD BATCH --vanilla Fisher_enrich_Markers.R")
 
 # Relabel
