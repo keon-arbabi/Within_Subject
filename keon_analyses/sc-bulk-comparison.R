@@ -1,3 +1,5 @@
+
+#==== library ====
 library(tidyverse)
 library(broom)
 library(here)
@@ -7,6 +9,7 @@ library(markerGeneProfile)
 library(gplots)
 
 #==== load data ====
+
 # set directory 
 setwd("/external/rprshnas01/kcni/karbabi/R Projects/Within_Subject")
 # get some functions from Berto et al., 2021
@@ -14,19 +17,28 @@ source("Utils.R")
 
 # Load adjusted data 
 load("rawdata/expAdj.RData")
-# format expression data
-data_working = boot_data_all %>% 
+# expression data
+within_exp = within_data %>% 
   as.data.frame() %>%
   rownames_to_column(var = "Gene.Symbol")
-# format meta data
-data_meta = phenoAll %>%
+all_exp = boot_data_all %>% 
+  as.data.frame() %>%
+  rownames_to_column(var = "Gene.Symbol")
+# meta data
+within_meta = pheno.ws %>%
   rownames_to_column(var = "sample_id")
+all_meta = phenoAll %>%
+  rownames_to_column(var = "sample_id")
+
+# select 
+data_working = all_exp
+data_meta = all_meta
 
 # Load processed SME data
 load("rawdata/SME_Values.RData")
 data_sme = Lateral_resected %>%
   t() %>% as.data.frame() %>%
-  rownames_to_column(var = "UT.code")
+  rownames_to_column(var = "UT.code") 
 
 # Load in marker genes 
 marker_data = read.csv("https://raw.githubusercontent.com/sonnyc247/MarkerSelection/master/Data/Outputs/CSVs_and_Tables/Markers/All_hodge_regions/new_ALLReg_results_ITexpand_WL35IT_lfct15_minpct25_dup.csv")[,-1]
@@ -67,7 +79,82 @@ marker_list = lapply(cell_types, function(cell_type){
 })
 names(marker_list) = cell_types
 
+#==== testing mgps ====
+
+# run MGP analysis all
+estimations =  mgpEstimate(
+  exprData = all_exp,
+  genes = marker_list,
+  geneColName = 'Gene.Symbol',
+  outlierSampleRemove = FALSE, # should outlier samples removed. This is done using boxplot stats
+  geneTransform = NULL, # this is the default option for geneTransform
+  groups = NULL, # if there are experimental groups provide them here. if not desired set to NULL
+  seekConsensus = FALSE, # ensures gene rotations are positive in both of the groups
+  removeMinority = TRUE)
+
+mgp_estimates_all = as.data.frame(estimations$estimates) %>%
+  rownames_to_column(var = "sample_id") %>%
+  filter(sample_id %in% within_meta$sample_id) %>%
+  arrange(sample_id) %>%
+  column_to_rownames(var = "sample_id") %>%
+  scale() %>%
+  as.data.frame()
+mgp_estimates_all = mgp_estimates_all[, order(names(mgp_estimates_all))]
+names(mgp_estimates_all) = gsub("\\.", "/", names(mgp_estimates_all))
+
+# run MGP analysis within
+estimations =  mgpEstimate(
+  exprData = within_exp,
+  genes = marker_list,
+  geneColName = 'Gene.Symbol',
+  outlierSampleRemove = FALSE, # should outlier samples removed. This is done using boxplot stats
+  geneTransform = NULL, # this is the default option for geneTransform
+  groups = NULL, # if there are experimental groups provide them here. if not desired set to NULL
+  seekConsensus = FALSE, # ensures gene rotations are positive in both of the groups
+  removeMinority = TRUE)
+
+mgp_estimates_within = as.data.frame(estimations$estimates) %>%
+  rownames_to_column(var = "sample_id") %>%
+  arrange(sample_id) %>%
+  column_to_rownames(var = "sample_id") %>%
+  scale() %>%
+  as.data.frame()
+mgp_estimates_within = mgp_estimates_within[, order(names(mgp_estimates_within))]
+names(mgp_estimates_within) = gsub("\\.", "/", names(mgp_estimates_within))
+
+cor_test = cor(t(mgp_estimates_all), t(mgp_estimates_within), method = "spearman")
+
+#pdf("keon_analyses/output/mgp-test-corrplot.pdf",width=10,height=10)
+corrplot::corrplot(cor_test, type="upper")
+#dev.off()            
+
+mgp_estimates_all %<>% 
+  rownames_to_column(var = "sample_id") %>%
+  pivot_longer(-sample_id, names_to = "cell_type", values_to = "prop") %>%
+  mutate(test = rep("x",nrow(.)))
+
+mgp_estimates_within %<>%
+  rownames_to_column(var = "sample_id") %>%
+  pivot_longer(-sample_id, names_to = "cell_type", values_to = "prop") %>%
+  mutate(test = rep("y",nrow(.)))
+
+comb = rbind(mgp_estimates_all, mgp_estimates_within) %>%
+  pivot_wider(names_from = test,
+              values_from = prop)
+
+#pdf("keon_analyses/output/mgp-test-scatterplot.pdf",width=12,height=10)
+ggplot(comb, aes(x, y)) +
+  geom_smooth(method = "lm", se = F) + 
+  geom_point() +
+  stat_cor(method = "spearman") +
+  ylab("47 subjects") + xlab ("16 subjects") +
+  theme_bw() +
+  facet_wrap(~cell_type, scales = "fixed")
+#dev.off()
+
+
 #==== marker gene profile ====
+
 # Run MGP analysis
 estimations =  mgpEstimate(
   exprData = data_working,
@@ -95,7 +182,7 @@ mgp_df = data_meta %>%
 
 # make objects for plotting
 plot_celltypes = names(mgp_estimates)[-1]
-plot_oscillation = unique(mgp_df$oscillation)
+plot_oscillation = factor(unique(mgp_df$oscillation), levels = c("High.Gamma","Gamma","Beta","Alpha","Theta","Delta"))
 plot_list = list()
 
 # scatter plots for oscillation vs. mgps 
@@ -110,47 +197,38 @@ for(i in 1:length(plot_celltypes)){
     facet_wrap(~oscillation, scales = "fixed")
 }
 
-#pdf("keon_analyses/output/scatterplots-subclass.pdf",width=25,height=15)
+pdf("keon_analyses/output/scatterplots-subclass.pdf",width=25,height=15)
 ggarrange(plotlist = plot_list)
-#dev.off()            
+dev.off()            
 
 #==== correlation analysis ====
-# reformat dataframe
-mgp_estimates_sme = mgp_estimates %>%
-  filter(sample_id %in% rownames(pheno.ws)) %>%
-  column_to_rownames(var = "sample_id") %>%
-  t() 
-# quick spearman correlation  
-res = list()
-for(i in 1:nrow(Lateral_resected)) {
-  res[[i]] = FastCor(mgp_estimates_sme,Lateral_resected[i,],method="spearman",alternative="two.sided",cores=1,override=TRUE)%>%
-    as.data.frame() %>%
-    rownames_to_column('Gene') 
-}
-# add column for wave 
-SME_cor_LR = data.frame()
-for(i in 1:length(res)){
-  res[[i]]$Waves = rep(paste(rownames(Lateral_resected)[i]),nrow(res[[i]]))
-}
-# combine list into dataframe 
-SME_cor_LR = do.call(rbind,res)
-SME_cor_LR = SME_cor_LR[c(1,4,2,3)] %>%
-  arrange(Rho)
 
-# format for heatmap
-SME_cor_LR_wide = SME_cor_LR %>%
-  select(-Pval) %>%
-  pivot_wider(names_from = Waves, values_from = Rho) %>%
-  column_to_rownames(var = "Gene") %>%
-  mutate_at(plot_oscillation, ~as.numeric(as.character(.))) %>%
-  as.matrix()
+# reformat dataframes
+mgp_estimates_sme = mgp_estimates %>% 
+  filter(sample_id %in% within_meta$sample_id) %>%
+  arrange(sample_id) %>%
+  column_to_rownames(var = "sample_id")
 
-#pdf("keon_analyses/output/correlation-heatmap-subclass.pdf",width=10,height=8)
-heatmap.2(SME_cor_LR_wide, scale = "none",
+data_sme = data_sme %>%
+  inner_join(within_meta[,c(1,10)], by = "UT.code") %>%
+  select(-UT.code) %>%
+  arrange(sample_id) %>%
+  column_to_rownames(var = "sample_id")
+
+# spearman correlation 
+cor_matrix = cor(mgp_estimates_sme, data_sme, method = "spearman")
+
+
+pdf("keon_analyses/output/correlation-heatmap-subclass.pdf",width=10,height=8)
+heatmap.2(cor_matrix, scale = "none",
           col = bluered(100), trace = "none", density.info = "none",
-          margins = c(10,10),
-          key.xlab = "Rho")
-#dev.off()    
+          cexCol = 1.2,
+          margins = c(6,8),
+          key.xlab = "Rho",
+          lmat = rbind(4:3,2:1),
+          lwid = c(1.5,4),
+          lhei = c(1.5,4))
+dev.off()    
 
 #==== linear models ====
 plot_list = list()
@@ -186,10 +264,10 @@ for(i in 1:length(plot_oscillation)){
     facet_wrap(~class, drop = T, scales = "free_x")
 }
 
-#pdf("keon_analyses/output/linear-models-subclass.pdf",width=15,height=9)
+pdf("keon_analyses/output/linear-models-subclass.pdf",width=15,height=9)
 p = ggarrange(plotlist = plot_list)
 annotate_figure(p, left = "Std. Beta coeff.", bottom = "Cell type proportions")
-#dev.off()            
+dev.off()            
 
 #==== bulk vs. sc ====
 
