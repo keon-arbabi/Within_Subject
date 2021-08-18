@@ -10,8 +10,13 @@ library(gplots)
 
 #==== load data ====
 
+<<<<<<< HEAD
 # set directory 
 #setwd("/external/rprshnas01/kcni/karbabi/R Projects/Within_Subject")
+=======
+# create output folder for  figures 
+dir.create("./keon_analyses/output")
+>>>>>>> 2abb03708fc9a19ede33d27a6ff463edbf780e8c
 # get some functions from Berto et al., 2021
 source("Utils.R")
 
